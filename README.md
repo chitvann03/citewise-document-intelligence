@@ -9,6 +9,7 @@ CiteWise lets a user upload PDF documents and ask questions about them. Each ans
 - TF-IDF vector retrieval (runs locally; no paid API needed)
 - FastAPI backend and browser-based UI
 - Transparent citations, confidence thresholding, and simple evaluation hooks
+- Grounded Gemini answer synthesis that receives only the retrieved passages
 
 ## Architecture
 
@@ -26,6 +27,21 @@ uvicorn app.main:app --reload
 ```
 
 Open `http://127.0.0.1:8000`.
+
+## Enable AI-generated answers (optional)
+
+CiteWise works without an API key and displays retrieved source passages. To turn on concise, source-cited AI answers:
+
+1. Create a Gemini API key in Google AI Studio.
+2. In a new PowerShell window, set it for your user account:
+
+```powershell
+setx GEMINI_API_KEY "paste-your-key-here"
+```
+
+3. Close and reopen the terminal, activate `.venv`, and start the app again.
+
+The key is read only from the `GEMINI_API_KEY` environment variable. It is never stored in the repository or sent to the browser. Only the top retrieved excerpts—not the entire PDF—are sent to Gemini. The configured model is `gemini-3.7-flash`.
 
 ## Interview notes
 

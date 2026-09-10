@@ -10,6 +10,8 @@ from pypdf import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from app.answering import create_answer
+
 
 app = FastAPI(title="CiteWise", version="0.1.0")
 
@@ -136,10 +138,13 @@ async def ask_question(payload: dict) -> dict:
         }
         for chunk, score in results
     ]
+    answer, mode, notice = create_answer(question, sources)
     return {
-        "answer": "Here is the strongest evidence I found. Verify the cited page before relying on it.",
+        "answer": answer,
         "sources": sources,
         "grounded": True,
+        "mode": mode,
+        "notice": notice,
     }
 
 
@@ -159,6 +164,6 @@ textarea { min-height:105px; resize:vertical; } button { border:0; cursor:pointe
 <script>
 const status = document.querySelector('#status'), result = document.querySelector('#result');
 async function upload() { const file = document.querySelector('#file').files[0]; if (!file) return status.textContent='Choose a PDF first.'; status.textContent='Extracting and indexing…'; const data=new FormData(); data.append('file',file); const r=await fetch('/api/documents',{method:'POST',body:data}); const j=await r.json(); status.textContent=r.ok ? j.message : j.detail; }
-async function ask() { const question=document.querySelector('#question').value.trim(); if (!question) return; result.innerHTML='<p class="meta">Searching documents…</p>'; const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question})}); const j=await r.json(); if(!r.ok) return result.textContent=j.detail; result.innerHTML=`<p class="answer">${j.answer}</p>${j.hint ? `<p class="meta">${j.hint}</p>` : ''}` + (j.sources||[]).map(s=>`<article class="source"><strong>${s.document} — page ${s.page}</strong><p>${s.excerpt}</p><span class="meta">Retrieval score: ${s.score}</span></article>`).join(''); }
+async function ask() { const question=document.querySelector('#question').value.trim(); if (!question) return; result.innerHTML='<p class="meta">Searching documents and preparing a grounded answer…</p>'; const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question})}); const j=await r.json(); if(!r.ok) return result.textContent=j.detail; result.innerHTML=`<p class="answer">${j.answer}</p><p class="meta">Mode: ${j.mode || 'no answer'}${j.notice ? ` · ${j.notice}` : ''}</p>${j.hint ? `<p class="meta">${j.hint}</p>` : ''}` + (j.sources||[]).map(s=>`<article class="source"><strong>[${(j.sources||[]).indexOf(s)+1}] ${s.document} — page ${s.page}</strong><p>${s.excerpt}</p><span class="meta">Retrieval score: ${s.score}</span></article>`).join(''); }
 </script></body></html>
 """
