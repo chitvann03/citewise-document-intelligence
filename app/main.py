@@ -1,81 +1,121 @@
-from __future__ import annotations
-
+import logging
 import re
-from dataclasses import dataclass
 from io import BytesIO
+from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pypdf import PdfReader
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import chromadb
+from chromadb.utils import embedding_functions
+from dotenv import load_dotenv
 
 from app.answering import create_answer
 
+load_dotenv()
+
+# Setup basic logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CiteWise", version="0.1.0")
 
-
-@dataclass
-class Chunk:
-    text: str
-    document_name: str
-    page: int
-
+# Setup template rendering
+templates = Jinja2Templates(directory="app/templates")
 
 class DocumentStore:
-    """A deliberately small in-memory retrieval index for the portfolio MVP."""
-
     def __init__(self) -> None:
-        self.chunks: list[Chunk] = []
-        self.vectorizer: TfidfVectorizer | None = None
-        self.matrix = None
+        # Use a persistent client so the data survives restarts
+        self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
+        
+        # This will download the sentence-transformer model on first run
+        self.ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+        
+        self.collection = self.chroma_client.get_or_create_collection(
+            name="citewise_docs",
+            embedding_function=self.ef,
+            metadata={"hnsw:space": "cosine"}
+        )
+        logger.info(f"DocumentStore initialized. Collection count: {self.collection.count()}")
 
     def add_pdf(self, filename: str, content: bytes) -> int:
+        logger.info(f"Processing PDF: {filename}")
         reader = PdfReader(BytesIO(content))
-        new_chunks: list[Chunk] = []
+        chunks = []
+        metadatas = []
+        ids = []
+        
         for page_number, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
-            for chunk in split_into_chunks(text):
-                new_chunks.append(Chunk(chunk, filename, page_number))
+            for i, chunk in enumerate(split_into_chunks(text)):
+                chunks.append(chunk)
+                metadatas.append({"document_name": filename, "page": page_number})
+                ids.append(f"{filename}_p{page_number}_{i}")
 
-        if not new_chunks:
+        if not chunks:
             raise ValueError("No readable text was found. The PDF may be a scanned image.")
 
-        # Re-uploading a document should refresh its index, not duplicate it.
-        self.chunks = [chunk for chunk in self.chunks if chunk.document_name != filename]
-        self.chunks.extend(new_chunks)
-        self._rebuild_index()
-        return len(new_chunks)
+        # Delete any existing chunks for this document so we don't duplicate
+        try:
+            self.collection.delete(where={"document_name": filename})
+        except Exception as e:
+            logger.warning(f"Could not delete old chunks for {filename}: {e}")
 
-    def search(self, question: str, limit: int = 3) -> list[tuple[Chunk, float]]:
-        if self.vectorizer is None or self.matrix is None:
+        # Add chunks to chromadb in batches to be safe
+        batch_size = 100
+        for i in range(0, len(chunks), batch_size):
+            self.collection.add(
+                documents=chunks[i:i+batch_size],
+                metadatas=metadatas[i:i+batch_size],
+                ids=ids[i:i+batch_size]
+            )
+        
+        logger.info(f"Successfully added {len(chunks)} chunks for {filename}")
+        return len(chunks)
+
+    def search(self, question: str, limit: int = 3) -> list[dict]:
+        logger.info(f"Searching for: {question}")
+        if self.collection.count() == 0:
             return []
-        query = self.vectorizer.transform([question])
-        scores = cosine_similarity(query, self.matrix).flatten()
-        ranked_indexes = scores.argsort()[::-1]
-        selected: list[tuple[Chunk, float]] = []
-        for index in ranked_indexes:
-            candidate = self.chunks[index]
-            # Overlapping chunks often contain almost the same text. Returning
-            # all of them looks like duplicate evidence, so keep diverse passages.
-            if any(not is_distinct(candidate.text, chosen.text) for chosen, _ in selected):
+            
+        results = self.collection.query(
+            query_texts=[question],
+            n_results=limit * 2 # get extra for diversity filtering
+        )
+        
+        if not results['documents'] or not results['documents'][0]:
+            return []
+            
+        documents = results['documents'][0]
+        metadatas = results['metadatas'][0]
+        distances = results['distances'][0]
+        
+        selected = []
+        for doc, meta, dist in zip(documents, metadatas, distances):
+            # ChromaDB cosine distance: lower is better (0 is exact). 
+            # We convert to similarity for the frontend.
+            score = 1.0 - dist
+            
+            # Simple diversity check
+            if any(not is_distinct(doc, chosen['text']) for chosen in selected):
                 continue
-            selected.append((candidate, float(scores[index])))
+                
+            selected.append({
+                "text": doc,
+                "document_name": meta["document_name"],
+                "page": meta["page"],
+                "score": score
+            })
+            
             if len(selected) == limit:
                 break
+                
         return selected
-
-    def _rebuild_index(self) -> None:
-        self.vectorizer = TfidfVectorizer(stop_words="english")
-        self.matrix = self.vectorizer.fit_transform([chunk.text for chunk in self.chunks])
-
 
 store = DocumentStore()
 
-
 def split_into_chunks(text: str, words_per_chunk: int = 110, overlap: int = 25) -> list[str]:
-    """Split text into overlapping word windows to preserve nearby context."""
     words = re.findall(r"\S+", text)
     if not words:
         return []
@@ -87,9 +127,7 @@ def split_into_chunks(text: str, words_per_chunk: int = 110, overlap: int = 25) 
             chunks.append(window)
     return chunks
 
-
 def is_distinct(first: str, second: str, maximum_overlap: float = 0.65) -> bool:
-    """Reject near-duplicate chunks produced by overlapping chunk windows."""
     first_words = set(re.findall(r"\w+", first.lower()))
     second_words = set(re.findall(r"\w+", second.lower()))
     if not first_words or not second_words:
@@ -97,11 +135,9 @@ def is_distinct(first: str, second: str, maximum_overlap: float = 0.65) -> bool:
     overlap = len(first_words & second_words) / len(first_words | second_words)
     return overlap < maximum_overlap
 
-
 @app.get("/", response_class=HTMLResponse)
-def home() -> str:
-    return HTML
-
+def home(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/api/documents")
 async def upload_document(file: UploadFile = File(...)) -> dict:
@@ -114,14 +150,16 @@ async def upload_document(file: UploadFile = File(...)) -> dict:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"message": f"Indexed {count} chunks from {file.filename}.", "chunks": count}
 
-
 @app.post("/api/ask")
 async def ask_question(payload: dict) -> dict:
     question = str(payload.get("question", "")).strip()
     if not question:
         raise HTTPException(status_code=400, detail="A question is required.")
     results = store.search(question)
-    if not results or results[0][1] < 0.15:
+    
+    # Cosine distance similarity threshold
+    if not results or results[0]["score"] < 0.2:
+        logger.info(f"No confident match found. Best score: {results[0]['score'] if results else 'N/A'}")
         return {
             "answer": "I don't know based on the uploaded documents.",
             "hint": "Try a more specific question using terms from the document.",
@@ -131,12 +169,12 @@ async def ask_question(payload: dict) -> dict:
 
     sources = [
         {
-            "document": chunk.document_name,
-            "page": chunk.page,
-            "excerpt": chunk.text[:500] + ("…" if len(chunk.text) > 500 else ""),
-            "score": round(score, 3),
+            "document": chunk["document_name"],
+            "page": chunk["page"],
+            "excerpt": chunk["text"][:500] + ("…" if len(chunk["text"]) > 500 else ""),
+            "score": round(chunk["score"], 3),
         }
-        for chunk, score in results
+        for chunk in results
     ]
     answer, mode, notice = create_answer(question, sources)
     return {
@@ -146,24 +184,3 @@ async def ask_question(payload: dict) -> dict:
         "mode": mode,
         "notice": notice,
     }
-
-
-HTML = r"""
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CiteWise</title><style>
-:root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background:#0c1020; color:#edf0ff; }
-body { max-width:850px; margin:0 auto; padding:48px 22px; } h1 { font-size:clamp(2rem,6vw,3.5rem); margin:0; }
-.sub { color:#aeb8d9; line-height:1.6; } .card { background:#151b33; border:1px solid #2b365e; border-radius:16px; padding:22px; margin:22px 0; }
-input, textarea, button { font:inherit; border-radius:9px; padding:12px; } input, textarea { width:100%; box-sizing:border-box; background:#0c1020; border:1px solid #3b4877; color:white; }
-textarea { min-height:105px; resize:vertical; } button { border:0; cursor:pointer; background:#8ba4ff; color:#0a1025; font-weight:700; margin-top:10px; } button:hover { background:#b4c3ff; }
-#status { color:#b9c6ed; min-height:1.5em; } .source { border-left:3px solid #8ba4ff; padding:10px 14px; margin:12px 0; background:#0c1020; border-radius:0 8px 8px 0; }
-.meta { color:#aeb8d9; font-size:.86rem; } .answer { line-height:1.6; font-weight:600; }
-</style></head><body><h1>CiteWise</h1><p class="sub">Ask questions about your documents. Answers include page-level evidence—or a transparent “I don’t know.”</p>
-<section class="card"><h2>1. Upload a PDF</h2><input id="file" type="file" accept="application/pdf"><button onclick="upload()">Index document</button><p id="status"></p></section>
-<section class="card"><h2>2. Ask a question</h2><textarea id="question" placeholder="What is the leave policy?"></textarea><button onclick="ask()">Find cited answer</button><div id="result"></div></section>
-<script>
-const status = document.querySelector('#status'), result = document.querySelector('#result');
-async function upload() { const file = document.querySelector('#file').files[0]; if (!file) return status.textContent='Choose a PDF first.'; status.textContent='Extracting and indexing…'; const data=new FormData(); data.append('file',file); const r=await fetch('/api/documents',{method:'POST',body:data}); const j=await r.json(); status.textContent=r.ok ? j.message : j.detail; }
-async function ask() { const question=document.querySelector('#question').value.trim(); if (!question) return; result.innerHTML='<p class="meta">Searching documents and preparing a grounded answer…</p>'; const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question})}); const j=await r.json(); if(!r.ok) return result.textContent=j.detail; result.innerHTML=`<p class="answer">${j.answer}</p><p class="meta">Mode: ${j.mode || 'no answer'}${j.notice ? ` · ${j.notice}` : ''}</p>${j.hint ? `<p class="meta">${j.hint}</p>` : ''}` + (j.sources||[]).map(s=>`<article class="source"><strong>[${(j.sources||[]).indexOf(s)+1}] ${s.document} — page ${s.page}</strong><p>${s.excerpt}</p><span class="meta">Retrieval score: ${s.score}</span></article>`).join(''); }
-</script></body></html>
-"""

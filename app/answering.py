@@ -18,9 +18,9 @@ def create_answer(question: str, sources: list[dict[str, Any]]) -> tuple[str, st
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return (
-            "I found relevant evidence below. Add a Gemini API key to generate a concise answer grounded in these sources.",
+            "I found relevant evidence below.",
             "retrieval-only",
-            "AI answer generation is off because GEMINI_API_KEY is not configured.",
+            "AI answer generation is off because the API key is not configured.",
         )
 
     prompt = build_prompt(question, sources)

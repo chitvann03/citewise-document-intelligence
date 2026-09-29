@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CiteWise AI - Enterprise Document Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            900: '#1e3a8a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; }
+        .spinner { animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    </style>
+</head>
+<body class="text-slate-800 h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 shadow-sm z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <div class="bg-brand-600 text-white p-2 rounded-lg">
+                    <i class="fa-solid fa-layer-group text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-slate-900 leading-tight">CiteWise AI</h1>
+                    <p class="text-xs text-slate-500 font-medium">Enterprise Document Intelligence</p>
+                </div>
+            </div>
+            <div class="text-sm text-slate-500 flex items-center gap-2">
+                <span class="flex h-2 w-2 relative">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+                System Online
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0 overflow-hidden">
+        
+        <!-- Left Panel: Document Management -->
+        <div class="lg:col-span-4 flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-1">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex-shrink-0">
+                <h2 class="text-lg font-semibold text-slate-800 mb-1"><i class="fa-solid fa-file-pdf text-brand-500 mr-2"></i>Knowledge Base</h2>
+                <p class="text-sm text-slate-500 mb-4">Upload a document to index it into the vector database.</p>
+                
+                <div class="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-brand-500 transition-colors bg-slate-50 relative group">
+                    <input id="file" type="file" accept="application/pdf" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" onchange="updateFileName()">
+                    <i class="fa-solid fa-cloud-arrow-up text-3xl text-slate-400 mb-2 group-hover:text-brand-500 transition-colors"></i>
+                    <p class="text-sm font-medium text-slate-700" id="file-name-display">Click to browse or drag PDF here</p>
+                    <p class="text-xs text-slate-500 mt-1">Maximum size: 50MB</p>
+                </div>
+                
+                <button id="upload-btn" onclick="upload()" class="w-full mt-4 bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex justify-center items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-database"></i> Index Document
+                </button>
+                <div id="upload-status" class="mt-3 text-sm hidden font-medium px-3 py-2 rounded-md"></div>
+            </div>
+
+            <!-- Features/Info Card -->
+            <div class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl shadow-sm border border-slate-700 p-5 text-white flex-shrink-0">
+                <h3 class="font-semibold mb-3 flex items-center gap-2"><i class="fa-solid fa-shield-halved text-brand-400"></i> Enterprise Ready</h3>
+                <ul class="text-sm text-slate-300 space-y-3">
+                    <li class="flex items-start gap-2"><i class="fa-solid fa-check text-green-400 mt-0.5"></i> <span>Powered by <strong>ChromaDB</strong> for persistent vector storage.</span></li>
+                    <li class="flex items-start gap-2"><i class="fa-solid fa-check text-green-400 mt-0.5"></i> <span>Uses <strong>all-MiniLM-L6-v2</strong> for high-accuracy embeddings.</span></li>
+                    <li class="flex items-start gap-2"><i class="fa-solid fa-check text-green-400 mt-0.5"></i> <span>Grounded generation with strict evidence-based constraints.</span></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Right Panel: Query & Results -->
+        <div class="lg:col-span-8 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden h-[calc(100vh-8rem)]">
+            <div class="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between flex-shrink-0">
+                <h2 class="font-semibold text-slate-800"><i class="fa-solid fa-magnifying-glass-chart text-brand-500 mr-2"></i> Analysis Workspace</h2>
+            </div>
+            
+            <!-- Results Area -->
+            <div id="result-container" class="flex-1 p-6 overflow-y-auto custom-scrollbar bg-white">
+                <div class="h-full flex flex-col items-center justify-center text-slate-400 text-center space-y-4 py-12">
+                    <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-2">
+                        <i class="fa-solid fa-robot text-3xl text-slate-300"></i>
+                    </div>
+                    <p class="font-medium text-slate-500">Ready for your questions</p>
+                    <p class="text-sm max-w-sm">Upload a document first, then type your question below. Answers will be directly cited from the text.</p>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 bg-slate-50 border-t border-slate-200 flex-shrink-0">
+                <div class="relative flex items-end gap-2">
+                    <textarea id="question" rows="1" class="w-full bg-white border border-slate-300 rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 resize-none text-slate-700 placeholder-slate-400 shadow-sm" placeholder="Ask a question based on the document... (e.g. What is the push operation?)" oninput="this.style.height = '';this.style.height = Math.min(this.scrollHeight, 150) + 'px'"></textarea>
+                    <button id="ask-btn" onclick="ask()" class="bg-slate-800 hover:bg-slate-900 text-white rounded-xl h-[48px] px-6 font-medium transition-colors flex items-center justify-center gap-2 shadow-sm flex-shrink-0">
+                        Ask AI <i class="fa-solid fa-paper-plane text-sm"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const uploadStatus = document.getElementById('upload-status');
+        const uploadBtn = document.getElementById('upload-btn');
+        const askBtn = document.getElementById('ask-btn');
+        const resultContainer = document.getElementById('result-container');
+        const questionInput = document.getElementById('question');
+        let isFirstQuestion = true;
+
+        // Handle Enter key for textarea
+        questionInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                ask();
+            }
+        });
+
+        function updateFileName() {
+            const file = document.getElementById('file').files[0];
+            const display = document.getElementById('file-name-display');
+            if (file) {
+                display.textContent = file.name;
+                display.classList.add('text-brand-600', 'font-semibold');
+            } else {
+                display.textContent = 'Click to browse or drag PDF here';
+                display.classList.remove('text-brand-600', 'font-semibold');
+            }
+        }
+
+        function setUploadStatus(msg, type) {
+            uploadStatus.textContent = msg;
+            uploadStatus.className = 'mt-3 text-sm font-medium px-3 py-2 rounded-md block';
+            if (type === 'error') uploadStatus.classList.add('bg-red-50', 'text-red-700', 'border', 'border-red-200');
+            else if (type === 'success') uploadStatus.classList.add('bg-green-50', 'text-green-700', 'border', 'border-green-200');
+            else uploadStatus.classList.add('bg-blue-50', 'text-blue-700', 'border', 'border-blue-200');
+        }
+
+        async function upload() { 
+            const file = document.getElementById('file').files[0]; 
+            if (!file) {
+                setUploadStatus('Please select a PDF file first.', 'error');
+                return;
+            }
+            
+            uploadBtn.disabled = true;
+            uploadBtn.innerHTML = '<i class="fa-solid fa-circle-notch spinner"></i> Indexing...';
+            setUploadStatus('Extracting text and building vector embeddings...', 'info');
+            
+            const data = new FormData(); 
+            data.append('file', file); 
+            
+            try {
+                const r = await fetch('/api/documents', { method: 'POST', body: data }); 
+                const j = await r.json(); 
+                if (r.ok) {
+                    setUploadStatus(`Success: ${j.message}`, 'success');
+                } else {
+                    setUploadStatus(`Error: ${j.detail}`, 'error');
+                }
+            } catch (e) {
+                setUploadStatus('Connection error occurred.', 'error');
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.innerHTML = '<i class="fa-solid fa-database"></i> Index Document';
+            }
+        }
+
+        async function ask() { 
+            const question = questionInput.value.trim(); 
+            if (!question) return; 
+            
+            if (isFirstQuestion) {
+                resultContainer.innerHTML = '';
+                isFirstQuestion = false;
+            }
+            
+            askBtn.disabled = true;
+            askBtn.innerHTML = '<i class="fa-solid fa-circle-notch spinner"></i>';
+            
+            const messageId = 'msg-' + Date.now();
+            
+            // Add user question to UI
+            resultContainer.innerHTML += `
+                <div class="flex flex-col gap-6 mb-6">
+                    <div class="flex gap-4 items-start w-full justify-end">
+                        <div class="bg-brand-600 text-white rounded-2xl rounded-tr-none px-5 py-3 shadow-sm max-w-[85%]">
+                            <p class="whitespace-pre-wrap">${question}</p>
+                        </div>
+                        <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0 mt-1">
+                            <i class="fa-solid fa-user text-slate-500 text-sm"></i>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-4 items-start w-full">
+                        <div class="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0 border border-indigo-200 mt-1">
+                            <i class="fa-solid fa-robot text-brand-600 text-sm"></i>
+                        </div>
+                        <div id="${messageId}" class="bg-white border border-slate-200 rounded-2xl rounded-tl-none px-6 py-4 shadow-sm w-full">
+                            <div class="flex items-center gap-2 text-brand-500 text-sm font-medium">
+                                <i class="fa-solid fa-circle-notch spinner"></i> Searching knowledge base & generating answer...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            resultContainer.scrollTop = resultContainer.scrollHeight;
+
+            try {
+                const r = await fetch('/api/ask', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({question})
+                }); 
+                const j = await r.json(); 
+                
+                const responseArea = document.getElementById(messageId);
+                
+                if (!r.ok) {
+                    responseArea.innerHTML = `<p class="text-red-600"><i class="fa-solid fa-circle-exclamation"></i> Error: ${j.detail}</p>`;
+                    return;
+                }
+                
+                let sourcesHtml = '';
+                if (j.sources && j.sources.length > 0) {
+                    sourcesHtml = `
+                        <div class="mt-6 pt-4 border-t border-slate-100">
+                            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3"><i class="fa-solid fa-book-open text-slate-300 mr-1"></i> Retrieved Evidence</p>
+                            <div class="space-y-3">
+                                ${j.sources.map((s, idx) => `
+                                    <div class="bg-slate-50 rounded-lg p-3 border border-slate-200 text-sm hover:border-brand-300 transition-colors">
+                                        <div class="flex justify-between items-center mb-2">
+                                            <span class="font-semibold text-brand-700"><span class="bg-brand-100 text-brand-800 px-1.5 py-0.5 rounded text-xs mr-1">[${idx+1}]</span> ${s.document} (Page ${s.page})</span>
+                                            <span class="text-xs text-slate-500 font-mono bg-white px-2 py-1 rounded border border-slate-200 shadow-sm">Score: ${s.score.toFixed(2)}</span>
+                                        </div>
+                                        <p class="text-slate-600 italic">"${s.excerpt}"</p>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                const metadataHtml = `
+                    <div class="mt-4 flex flex-wrap gap-2 text-xs">
+                        <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 shadow-sm"><i class="fa-solid fa-microchip mr-1"></i> Mode: ${j.mode || 'N/A'}</span>
+                        ${j.notice ? `<span class="bg-amber-50 text-amber-700 px-2 py-1 rounded border border-amber-200 shadow-sm"><i class="fa-solid fa-triangle-exclamation mr-1"></i> ${j.notice}</span>` : ''}
+                    </div>
+                `;
+
+                // Format answer with bolding for [1], [2] citations
+                let formattedAnswer = j.answer.replace(/\n/g, '<br>');
+                formattedAnswer = formattedAnswer.replace(/\[(\d+)\]/g, '<span class="text-brand-600 font-bold bg-brand-50 px-1 rounded">[$1]</span>');
+
+                responseArea.innerHTML = `
+                    <div class="text-slate-800 leading-relaxed font-medium text-[15px]">
+                        ${formattedAnswer}
+                    </div>
+                    ${metadataHtml}
+                    ${sourcesHtml}
+                `;
+                
+                questionInput.value = '';
+                questionInput.style.height = '';
+            } catch (e) {
+                document.getElementById(messageId).innerHTML = `<p class="text-red-600"><i class="fa-solid fa-circle-exclamation"></i> Connection error.</p>`;
+            } finally {
+                askBtn.disabled = false;
+                askBtn.innerHTML = 'Ask AI <i class="fa-solid fa-paper-plane text-sm"></i>';
+                resultContainer.scrollTop = resultContainer.scrollHeight;
+            }
+        }
+    </script>
+</body>
+</html>
